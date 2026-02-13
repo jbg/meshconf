@@ -4,11 +4,15 @@ pub mod audio_macos;
 pub mod audio_decode;
 pub mod audio_encode;
 pub mod audio_mixer;
+pub mod bandwidth;
 pub mod broadcaster;
 pub mod control;
 pub mod dispatch;
+pub mod jitter;
+#[cfg(feature = "kitty")]
 pub mod kitty;
 pub mod net;
+pub mod pool;
 pub mod protocol;
 pub mod room;
 pub mod term;
@@ -16,6 +20,10 @@ pub mod tui;
 pub mod video_capture;
 pub mod video_compositor;
 pub mod video_decode;
-pub mod video_display;
+#[cfg(feature = "kitty")]
+pub mod video_display_kitty;
+#[cfg(feature = "minifb")]
 pub mod video_display_window;
 pub mod video_encode;
+#[cfg(target_os = "macos")]
+pub mod vimage;

@@ -4,19 +4,21 @@ use anyhow::{anyhow, Result};
 use block2::RcBlock;
 use objc2::AnyThread;
 use objc2_avf_audio::{
+    AVAudioConverter, AVAudioConverterInputStatus,
     AVAudioEngine, AVAudioFormat, AVAudioPCMBuffer, AVAudioPlayerNode, AVAudioTime,
 };
 use tokio::sync::mpsc;
 
 use crate::audio::AudioEngine;
+use crate::pool::{BufPool, SharedBuf};
 
 const SAMPLE_RATE: f64 = 48000.0;
 const CHANNELS: u32 = 1;
 const CHUNK_SIZE: usize = 960; // 20ms @ 48kHz
 
 pub fn start() -> crate::audio::AudioStartResult {
-    let (capture_tx, capture_rx) = mpsc::channel::<Vec<f32>>(10);
-    let (playback_tx, playback_rx) = mpsc::channel::<Vec<f32>>(50);
+    let (capture_tx, capture_rx) = mpsc::channel::<SharedBuf<f32>>(10);
+    let (playback_tx, playback_rx) = mpsc::channel::<SharedBuf<f32>>(50);
     let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
     let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<()>>();
 
@@ -43,8 +45,8 @@ pub fn start() -> crate::audio::AudioStartResult {
 }
 
 fn engine_thread(
-    capture_tx: mpsc::Sender<Vec<f32>>,
-    mut playback_rx: mpsc::Receiver<Vec<f32>>,
+    capture_tx: mpsc::Sender<SharedBuf<f32>>,
+    mut playback_rx: mpsc::Receiver<SharedBuf<f32>>,
     stop_rx: std::sync::mpsc::Receiver<()>,
     init_tx: std::sync::mpsc::Sender<Result<()>>,
 ) {
@@ -64,7 +66,33 @@ fn engine_thread(
             }
         };
 
-        // Enable voice processing on input node (AEC + noise suppression)
+        // Start the engine *before* touching the input node.
+        // Accessing engine.inputNode() implicitly connects it into the
+        // graph; if voice processing hasn't been configured for the
+        // hardware format yet, this leads to -10875 on start.
+        //
+        // Sequence (from Apple docs & empirical):
+        //  1. Create engine
+        //  2. Attach & connect the player node (output-only path)
+        //  3. Start the engine (output path only, no input yet)
+        //  4. Access inputNode, enable voice processing
+        //  5. Stop & restart the engine (now with VP-configured input)
+        //  6. Install the capture tap
+
+        // --- Phase 1: output-only start ---
+        let player = AVAudioPlayerNode::new();
+        engine.attachNode(&player);
+        let mixer = engine.mainMixerNode();
+        engine.connect_to_format(&player, &mixer, Some(&format));
+
+        if let Err(e) = engine.startAndReturnError() {
+            let _ = init_tx.send(Err(anyhow!("Failed to start AVAudioEngine (phase 1): {:?}", e)));
+            return;
+        }
+
+        // --- Phase 2: enable voice processing & restart ---
+        engine.stop();
+
         let input_node = engine.inputNode();
         if let Err(e) = input_node.setVoiceProcessingEnabled_error(true) {
             let _ = init_tx.send(Err(anyhow!(
@@ -75,51 +103,150 @@ fn engine_thread(
         }
         input_node.setVoiceProcessingAGCEnabled(true);
 
-        // Install tap on input node for capture
+        // After enabling VP the input node's format may have changed.
+        let vp_format = input_node.outputFormatForBus(0);
+        let vp_sample_rate = vp_format.sampleRate();
+        let vp_channels = vp_format.channelCount();
+        tracing::info!(
+            "Audio input format (after voice processing): {vp_sample_rate}Hz, {vp_channels} channels"
+        );
+
+        // Set up AVAudioConverter to resample/downmix from the VP
+        // hardware format to our target 48 kHz mono format.
+        let needs_conversion =
+            (vp_sample_rate - SAMPLE_RATE).abs() >= 1.0 || vp_channels != CHANNELS;
+
+        let converter: Option<objc2::rc::Retained<AVAudioConverter>> = if needs_conversion {
+            match AVAudioConverter::initFromFormat_toFormat(
+                AVAudioConverter::alloc(),
+                &vp_format,
+                &format,
+            ) {
+                Some(c) => {
+                    tracing::info!("Created AVAudioConverter: {vp_sample_rate}Hz/{vp_channels}ch -> {SAMPLE_RATE}Hz/{CHANNELS}ch");
+                    Some(c)
+                }
+                None => {
+                    let _ = init_tx.send(Err(anyhow!(
+                        "Failed to create AVAudioConverter ({vp_sample_rate}Hz/{vp_channels}ch -> {SAMPLE_RATE}Hz/{CHANNELS}ch)"
+                    )));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Install tap using the VP node's native format.
+        // The converter (if any) is used inside the tap to produce 48 kHz mono.
         let tap_block = RcBlock::new(move |buffer: NonNull<AVAudioPCMBuffer>, _when: NonNull<AVAudioTime>| {
-            let buf = buffer.as_ref();
-            let frame_length = buf.frameLength() as usize;
+            let input_buf = buffer.as_ref();
+            let frame_length = input_buf.frameLength() as usize;
             if frame_length == 0 {
                 return;
             }
-            let channel_data_ptr = buf.floatChannelData();
-            if channel_data_ptr.is_null() {
-                return;
-            }
-            // channel_data_ptr is *mut NonNull<f32>, pointing to array of channel pointers
-            let ch0_ptr = (*channel_data_ptr).as_ptr();
-            let samples = std::slice::from_raw_parts(ch0_ptr, frame_length);
 
-            // Accumulate and emit CHUNK_SIZE chunks
-            // We use a thread-local buffer since this callback is always on the same CoreAudio thread
+            // If conversion is needed, run through AVAudioConverter.
+            // Otherwise use the buffer directly.
+            let (samples_ptr, samples_len) = if let Some(ref conv) = converter {
+                // Compute output frame count based on sample rate ratio
+                let ratio = SAMPLE_RATE / vp_sample_rate;
+                let out_frames = (frame_length as f64 * ratio).ceil() as u32;
+
+                let out_buf = match AVAudioPCMBuffer::initWithPCMFormat_frameCapacity(
+                    AVAudioPCMBuffer::alloc(),
+                    conv.outputFormat().as_ref(),
+                    out_frames,
+                ) {
+                    Some(b) => b,
+                    None => return,
+                };
+
+                // The input block is called by the converter to get source data.
+                // We supply our tap buffer exactly once.
+                let input_buf_ptr = NonNull::from(input_buf);
+                let supplied = std::cell::Cell::new(false);
+                let input_block = RcBlock::new(
+                    move |_: u32, out_status: NonNull<AVAudioConverterInputStatus>| -> *mut AVAudioPCMBuffer {
+                        if supplied.get() {
+                            out_status.as_ptr().write(AVAudioConverterInputStatus::EndOfStream);
+                            return std::ptr::null_mut();
+                        }
+                        supplied.set(true);
+                        out_status.as_ptr().write(AVAudioConverterInputStatus::HaveData);
+                        input_buf_ptr.as_ptr() as *mut AVAudioPCMBuffer
+                    },
+                );
+
+                let mut error: Option<objc2::rc::Retained<objc2_foundation::NSError>> = None;
+                let _ = conv.convertToBuffer_error_withInputFromBlock(
+                    &out_buf,
+                    Some(&mut error),
+                    &*input_block as *const _ as *mut _,
+                );
+
+                let converted_len = out_buf.frameLength() as usize;
+                let ch_data = out_buf.floatChannelData();
+                if ch_data.is_null() || converted_len == 0 {
+                    return;
+                }
+                let ptr = (*ch_data).as_ptr();
+                let slice = std::slice::from_raw_parts(ptr, converted_len);
+                thread_local! {
+                    static ACCUM: std::cell::RefCell<Vec<f32>> = std::cell::RefCell::new(Vec::with_capacity(CHUNK_SIZE * 2));
+                    static POOL: BufPool<f32> = BufPool::new();
+                }
+                ACCUM.with(|accum| {
+                    let mut accum = accum.borrow_mut();
+                    accum.extend_from_slice(slice);
+                    POOL.with(|pool| {
+                        while accum.len() >= CHUNK_SIZE {
+                            let mut buf = pool.checkout(CHUNK_SIZE);
+                            buf.copy_from_slice(&accum[..CHUNK_SIZE]);
+                            accum.drain(..CHUNK_SIZE);
+                            let _ = capture_tx.try_send(buf.share());
+                        }
+                    });
+                });
+                return;
+            } else {
+                let ch_data = input_buf.floatChannelData();
+                if ch_data.is_null() {
+                    return;
+                }
+                ((*ch_data).as_ptr(), frame_length)
+            };
+
+            let samples = std::slice::from_raw_parts(samples_ptr, samples_len);
+
             thread_local! {
-                static ACCUM: std::cell::RefCell<Vec<f32>> = std::cell::RefCell::new(Vec::with_capacity(CHUNK_SIZE * 2));
+                static ACCUM2: std::cell::RefCell<Vec<f32>> = std::cell::RefCell::new(Vec::with_capacity(CHUNK_SIZE * 2));
+                static POOL2: BufPool<f32> = BufPool::new();
             }
-            ACCUM.with(|accum| {
+            ACCUM2.with(|accum| {
                 let mut accum = accum.borrow_mut();
                 accum.extend_from_slice(samples);
-                while accum.len() >= CHUNK_SIZE {
-                    let chunk: Vec<f32> = accum.drain(..CHUNK_SIZE).collect();
-                    let _ = capture_tx.try_send(chunk);
-                }
+                POOL2.with(|pool| {
+                    while accum.len() >= CHUNK_SIZE {
+                        let mut buf = pool.checkout(CHUNK_SIZE);
+                        buf.copy_from_slice(&accum[..CHUNK_SIZE]);
+                        accum.drain(..CHUNK_SIZE);
+                        let _ = capture_tx.try_send(buf.share());
+                    }
+                });
             });
         });
 
         input_node.installTapOnBus_bufferSize_format_block(
             0,
             CHUNK_SIZE as u32,
-            Some(&format),
+            Some(&vp_format),
             &*tap_block as *const _ as *mut _,
         );
 
-        // Create player node for playback
-        let player = AVAudioPlayerNode::new();
-        engine.attachNode(&player);
-        engine.connect_to_format(&player, &engine.mainMixerNode(), Some(&format));
-
-        // Start engine
+        // Restart with input node now in the graph
         if let Err(e) = engine.startAndReturnError() {
-            let _ = init_tx.send(Err(anyhow!("Failed to start AVAudioEngine: {:?}", e)));
+            let _ = init_tx.send(Err(anyhow!("Failed to start AVAudioEngine (phase 2): {:?}", e)));
             return;
         }
         player.play();

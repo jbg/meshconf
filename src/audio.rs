@@ -3,9 +3,10 @@ use tokio::sync::mpsc;
 
 #[cfg(target_os = "macos")]
 use crate::audio_macos;
+use crate::pool::SharedBuf;
 
 /// Return type for `AudioEngine::start()`.
-pub type AudioStartResult = Result<(AudioEngine, mpsc::Receiver<Vec<f32>>, mpsc::Sender<Vec<f32>>)>;
+pub type AudioStartResult = Result<(AudioEngine, mpsc::Receiver<SharedBuf<f32>>, mpsc::Sender<SharedBuf<f32>>)>;
 
 /// Platform-native audio engine with echo cancellation.
 ///

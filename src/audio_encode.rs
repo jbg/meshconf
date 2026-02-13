@@ -2,14 +2,15 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::broadcaster::Broadcaster;
+use crate::pool::{BufPool, SharedBuf};
 use crate::protocol;
 
 /// Reads 960-sample f32 chunks from the capture channel, encodes them with Opus,
-/// and broadcasts each encoded packet to all connected peers.
+/// and broadcasts each encoded packet as a QUIC datagram to all connected peers.
 ///
 /// Runs until cancelled. Does not return the rx — the encoder is app-lifetime.
 pub async fn run_audio_encoder(
-    mut rx: mpsc::Receiver<Vec<f32>>,
+    mut rx: mpsc::Receiver<SharedBuf<f32>>,
     broadcaster: Broadcaster,
     cancel: CancellationToken,
 ) {
@@ -22,7 +23,7 @@ pub async fn run_audio_encoder(
         }
     };
     let mut output = vec![0u8; 1500];
-    let mut group_id: u64 = 0;
+    let datagram_pool: BufPool<u8> = BufPool::new();
 
     loop {
         tokio::select! {
@@ -41,14 +42,11 @@ pub async fn run_audio_encoder(
                         if broadcaster.peer_count() == 0 {
                             continue;
                         }
-                        broadcaster.send_to_all(
-                            protocol::TRACK_AUDIO,
-                            group_id,
-                            protocol::QUIC_PRIORITY_AUDIO,
-                            protocol::PRIORITY_AUDIO,
+                        broadcaster.send_audio_datagram_to_all(
+                            protocol::now_us(),
                             &output[..len],
-                        ).await;
-                        group_id = group_id.wrapping_add(1);
+                            &datagram_pool,
+                        );
                     }
                     None => break,
                 }

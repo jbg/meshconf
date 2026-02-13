@@ -9,27 +9,44 @@ pub const STREAM_TYPE_CONTROL: u8 = 0x01;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "msg_type")]
 pub enum ControlMessage {
-    /// Sent by a joiner to the host upon connecting.
+    /// Sent by the connecting peer upon joining.
     #[serde(rename = "hello")]
-    Hello { addr: String },
+    Hello {
+        addr: String,
+        /// Display name of the peer (typically the OS username).
+        #[serde(default)]
+        name: String,
+    },
 
-    /// Sent by the host to a newly joined peer with the list of existing peers.
+    /// Full peer list. Sent in response to Hello, and periodically
+    /// thereafter so that all peers converge on the same membership.
     #[serde(rename = "peer_list")]
     PeerList { peers: Vec<PeerInfo> },
 
-    /// Sent by the host to existing peers when a new peer joins.
-    #[serde(rename = "peer_joined")]
-    PeerJoined { peer: PeerInfo },
-
-    /// Sent by the host to remaining peers when a peer leaves.
-    #[serde(rename = "peer_left")]
-    PeerLeft { peer_id: String },
+    /// Receiver-side congestion feedback, sent periodically to the peer
+    /// whose video we are receiving.  Fields are modelled on RTCP Receiver
+    /// Reports (RFC 3550 §6.4.1).
+    #[serde(rename = "congestion_feedback")]
+    CongestionFeedback {
+        /// Video frames received in the reporting interval.
+        received: u64,
+        /// Video frames dropped (late, duplicate, decode failure) in the
+        /// reporting interval.
+        dropped: u64,
+        /// Fraction of frames lost (0.0–1.0), pre-computed for convenience.
+        fraction_lost: f64,
+        /// Observed inter-arrival jitter in microseconds.
+        jitter_us: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: String,
     pub addr: String,
+    /// Display name of the peer.
+    #[serde(default)]
+    pub name: String,
 }
 
 /// Write a length-prefixed JSON control message.

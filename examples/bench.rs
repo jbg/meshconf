@@ -10,6 +10,7 @@ use iroh::endpoint::Connection;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use vc::broadcaster::Broadcaster;
 use vc::protocol::MediaObject;
 use vc::{dispatch, net, video_capture, video_decode, video_encode};
 
@@ -102,8 +103,13 @@ async fn run_bench(cli: Cli) -> Result<()> {
         let cancel = cancel.clone();
         let conn = conn_send.clone();
         tokio::spawn(async move {
-            match video_encode::VideoEncoder::start(frame_rx, cancel.clone()) {
-                Ok(enc) => { enc.send_session(conn, cancel).await; }
+            match video_encode::VideoEncoder::start(frame_rx, None, cancel.clone()) {
+                Ok(enc) => {
+                    let bc = Broadcaster::new_with_keyframe(enc.force_keyframe_flag());
+                    // Use a dummy peer ID — just need the connection.
+                    bc.add_peer(conn.remote_id(), conn);
+                    enc.send_loop(bc, None, cancel).await;
+                }
                 Err(e) => tracing::warn!("Encoder error: {}", e),
             }
         });
@@ -119,7 +125,7 @@ async fn run_bench(cli: Cli) -> Result<()> {
     {
         let cancel = cancel.clone();
         tokio::spawn(async move {
-            dispatch::run_dispatcher(conn_recv, audio_tx, video_tx, None, cancel).await;
+            dispatch::run_dispatcher(conn_recv, audio_tx, video_tx, vc::video_compositor::VideoDropCounter::new(), None, None, cancel).await;
         });
     }
 
@@ -175,7 +181,7 @@ async fn run_bench(cli: Cli) -> Result<()> {
         let dummy_peer_id = conn_send.remote_id();
         tokio::spawn(async move {
             if let Err(e) =
-                video_decode::run_video_decoder(dummy_peer_id, video_payload_rx2, tagged_tx, cancel)
+                video_decode::run_video_decoder(dummy_peer_id, video_payload_rx2, tagged_tx, vc::video_compositor::VideoDropCounter::new(), cancel)
                     .await
             {
                 tracing::warn!("Decoder error: {}", e);

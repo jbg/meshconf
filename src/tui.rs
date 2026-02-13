@@ -180,6 +180,66 @@ pub fn draw_status(out: &mut impl Write, text: &str) -> io::Result<()> {
     buf.flush()
 }
 
+/// Draw an error banner at the top of the terminal, wrapping across multiple lines.
+pub fn draw_error_banner(out: &mut impl Write, message: &str) -> io::Result<()> {
+    let ws = term::window_size()?;
+    let term_w = ws.cols as usize;
+
+    // Max usable width (leave some padding)
+    let max_w = term_w.saturating_sub(4);
+    let prefix = "⚠ ";
+    let prefix_len = 4; // "⚠ " is 4 columns (⚠ = 1 wide char + space, but using UnicodeWidthStr is overkill; 2 bytes display + space ≈ 3-4 cols)
+
+    // Word-wrap the message to fit within max_w (accounting for prefix on first line)
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
+    let first_line_max = max_w.saturating_sub(prefix_len);
+
+    for word in message.split_whitespace() {
+        let line_max = if lines.is_empty() { first_line_max } else { max_w };
+        if current_line.is_empty() {
+            if word.len() > line_max {
+                // Long word: hard-break it
+                let mut remaining = word;
+                while !remaining.is_empty() {
+                    let lmax = if lines.is_empty() && current_line.is_empty() { first_line_max } else { max_w };
+                    let take: String = remaining.chars().take(lmax).collect();
+                    let taken = take.len();
+                    lines.push(take);
+                    remaining = &remaining[taken..];
+                }
+            } else {
+                current_line.push_str(word);
+            }
+        } else if current_line.len() + 1 + word.len() <= line_max {
+            current_line.push(' ');
+            current_line.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut current_line));
+            current_line.push_str(word);
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    let mut buf = BufWriter::new(out);
+    for (i, line) in lines.iter().enumerate() {
+        let full_line = if i == 0 {
+            format!("{}{}", prefix, line)
+        } else {
+            format!("{:>width$}{}", "", line, width = prefix_len)
+        };
+        let col = term_w.saturating_sub(full_line.len()) / 2;
+        term::move_to(&mut buf, col as u16, (1 + i) as u16)?;
+        write!(buf, "\x1b[1;31m{}\x1b[0m", full_line)?;
+    }
+    buf.flush()
+}
+
 /// Clear the screen (content only, no cursor state change).
 pub fn clear(out: &mut impl Write) -> io::Result<()> {
     write!(out, "\x1b[2J\x1b[H")?;
