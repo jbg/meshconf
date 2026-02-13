@@ -10,9 +10,9 @@ use iroh::endpoint::Connection;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use vc::broadcaster::Broadcaster;
-use vc::protocol::MediaObject;
-use vc::{dispatch, net, video_capture, video_decode, video_encode};
+use meshconf::broadcaster::Broadcaster;
+use meshconf::protocol::MediaObject;
+use meshconf::{dispatch, net, video_capture, video_decode, video_encode};
 
 #[derive(Parser)]
 #[command(
@@ -125,7 +125,7 @@ async fn run_bench(cli: Cli) -> Result<()> {
     {
         let cancel = cancel.clone();
         tokio::spawn(async move {
-            dispatch::run_dispatcher(conn_recv, audio_tx, video_tx, vc::video_compositor::VideoDropCounter::new(), None, None, cancel).await;
+            dispatch::run_dispatcher(conn_recv, audio_tx, video_tx, meshconf::video_compositor::VideoDropCounter::new(), None, None, cancel).await;
         });
     }
 
@@ -181,7 +181,7 @@ async fn run_bench(cli: Cli) -> Result<()> {
         let dummy_peer_id = conn_send.remote_id();
         tokio::spawn(async move {
             if let Err(e) =
-                video_decode::run_video_decoder(dummy_peer_id, video_payload_rx2, tagged_tx, vc::video_compositor::VideoDropCounter::new(), cancel)
+                video_decode::run_video_decoder(dummy_peer_id, video_payload_rx2, tagged_tx, meshconf::video_compositor::VideoDropCounter::new(), cancel)
                     .await
             {
                 tracing::warn!("Decoder error: {}", e);

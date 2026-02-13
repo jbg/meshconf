@@ -127,7 +127,7 @@ fn display_loop(mut rx: mpsc::Receiver<GalleryFrame>, cancel: CancellationToken)
                 let win_w = (out_w / scale_factor).max(1);
                 let win_h = (out_h / scale_factor).max(1);
                 let win = Window::new(
-                    "vc",
+                    "meshconf",
                     win_w as usize,
                     win_h as usize,
                     WindowOptions {

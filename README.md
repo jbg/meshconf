@@ -1,8 +1,8 @@
-# vc
+# meshconf
 
-Peer-to-peer video calling in the terminal.
+Peer-to-peer video conferencing in the terminal.
 
-`vc` is a small group video conferencing tool that runs in your terminal. It uses [iroh](https://iroh.computer/) for peer-to-peer connectivity with built-in encryption, hardware-accelerated [HEVC](https://en.wikipedia.org/wiki/High_Efficiency_Video_Coding) (via macOS VideoToolbox) for video, and [Opus](https://opus-codec.org/) for audio. Video can be rendered directly in a compatible terminal using the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/), or displayed in a window.
+`meshconf` is a small group video conferencing tool that runs in your terminal. It uses [iroh](https://iroh.computer/) for peer-to-peer connectivity with built-in encryption, hardware-accelerated [HEVC](https://en.wikipedia.org/wiki/High_Efficiency_Video_Coding) (via macOS VideoToolbox) for video, and [Opus](https://opus-codec.org/) for audio. Video can be rendered directly in a compatible terminal using the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/), or displayed in a native window (the default).
 
 There is no host/joiner distinction — every participant is equal. Each participant's ticket is displayed below the video gallery, and anyone can share theirs to let new people join. Any participant can leave without disrupting the call. All participants connect directly to each other in a full mesh, making this suitable for small calls.
 
@@ -11,7 +11,7 @@ There is no host/joiner distinction — every participant is equal. Each partici
 ### Starting a call
 
 ```
-vc
+meshconf
 ```
 
 A ticket string is printed (and displayed in the TUI). Share it with another participant.
@@ -19,7 +19,7 @@ A ticket string is printed (and displayed in the TUI). Share it with another par
 ### Joining a call
 
 ```
-vc <ticket>
+meshconf <ticket>
 ```
 
 Paste a ticket from any participant in the call. Once connected, your own ticket is displayed too — anyone can use any participant's ticket to join.
@@ -29,8 +29,9 @@ Paste a ticket from any participant in the call. Once connected, your own ticket
 | Flag | Description |
 |---|---|
 | `--test-pattern` | Send animated colour bars instead of the webcam |
-| `--window` | Display video in a native window (via minifb) instead of the terminal |
+| `--kitty` | Display video in the terminal using the Kitty graphics protocol instead of a native window |
 | `--relay <url>` | Use a custom relay server URL (e.g. `http://localhost:3340` for local dev); omit to use iroh's default production relays |
+| `--no-relay` | Disable relay servers entirely (direct connections only) |
 
 ### Quitting
 
@@ -47,7 +48,7 @@ Media is sent over unidirectional QUIC streams using the [MoQ Transport](https:/
 ## Requirements
 
 - **macOS** (audio uses AVAudioEngine, video uses VideoToolbox — both are macOS-only)
-- A terminal supporting the **Kitty graphics protocol** for inline video (e.g. Kitty, Ghostty, WezTerm), or use `--window`
+- A terminal supporting the **Kitty graphics protocol** for inline video (e.g. Kitty, Ghostty, WezTerm) when using `--kitty`, otherwise video is displayed in a native window
 - A webcam and microphone (or use `--test-pattern` for video)
 
 ## Building

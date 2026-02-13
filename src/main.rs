@@ -5,18 +5,18 @@ use tokio_util::sync::CancellationToken;
 
 use std::sync::{Arc, Mutex};
 
-use vc::audio::AudioEngine;
-use vc::room::{MediaResources, Room};
-use vc::video_compositor::{GalleryFrame, StatusInfo};
-use vc::video_decode::RgbFrame;
-use vc::{bandwidth, net, term, tui, video_capture, video_encode};
+use meshconf::audio::AudioEngine;
+use meshconf::room::{MediaResources, Room};
+use meshconf::video_compositor::{GalleryFrame, StatusInfo};
+use meshconf::video_decode::RgbFrame;
+use meshconf::{bandwidth, net, term, tui, video_capture, video_encode};
 #[cfg(feature = "kitty")]
-use vc::{kitty, video_display_kitty};
+use meshconf::{kitty, video_display_kitty};
 #[cfg(feature = "minifb")]
-use vc::video_display_window;
+use meshconf::video_display_window;
 
 #[derive(Parser)]
-#[command(name = "vc", about = "Peer-to-peer video call in the terminal")]
+#[command(name = "meshconf", about = "Peer-to-peer video call in the terminal")]
 struct Cli {
     /// Ticket to join an existing call (omit to start a new call)
     ticket: Option<String>,
@@ -122,13 +122,13 @@ fn init_tracing_file() {
     let log_dir = dirs::state_dir()
         .or_else(dirs::cache_dir)
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("vc")
+        .join("meshconf")
         .join("logs");
     std::fs::create_dir_all(&log_dir).ok();
 
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let pid = std::process::id();
-    let log_path = log_dir.join(format!("vc-{}-{}.log", timestamp, pid));
+    let log_path = log_dir.join(format!("meshconf-{}-{}.log", timestamp, pid));
 
     eprintln!("Logging to {}", log_path.display());
 
@@ -245,7 +245,7 @@ async fn run_app(
     //     both the Room (for remote peer frames) and the local camera
     //     preview tee task.
     let (compositor_tx, compositor_rx) =
-        mpsc::channel::<(vc::room::PeerId, RgbFrame)>(10);
+        mpsc::channel::<(meshconf::room::PeerId, RgbFrame)>(10);
 
     // --- Bind endpoint (instant — no network wait) ---
     tracing::info!("Binding iroh endpoint...");
@@ -394,7 +394,7 @@ async fn run_app(
         if !kitty_ok {
             tui::draw_centered_box(
                 &mut stdout,
-                "vc",
+                "meshconf",
                 &[
                     "Terminal does not support Kitty graphics.",
                     "Audio only — video will not be displayed.",

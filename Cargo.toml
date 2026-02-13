@@ -1,10 +1,10 @@
 [package]
-name = "vc"
+name = "meshconf"
 version = "0.1.0"
 authors = ["Jasper Hugo <jasper@jasperhugo.com>"]
 edition = "2024"
-description = "video calls in the terminal"
-repository = "https://github.com/jbg/vc"
+description = "mesh conference calls"
+repository = "https://github.com/jbg/meshconf"
 license = "MIT OR Apache-2.0"
 
 [dependencies]

@@ -1885,6 +1885,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "meshconf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "block2",
+ "bytes",
+ "camera-stream",
+ "chrono",
+ "clap",
+ "dirs",
+ "flate2",
+ "iroh",
+ "itoa",
+ "libc",
+ "minifb",
+ "noto-sans-mono-bitmap",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-avf-audio",
+ "objc2-core-foundation",
+ "objc2-core-media",
+ "objc2-core-video",
+ "objc2-foundation",
+ "objc2-video-toolbox",
+ "opus",
+ "postcard",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "minifb"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3906,42 +3942,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "vc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "block2",
- "bytes",
- "camera-stream",
- "chrono",
- "clap",
- "dirs",
- "flate2",
- "iroh",
- "itoa",
- "libc",
- "minifb",
- "noto-sans-mono-bitmap",
- "objc2",
- "objc2-app-kit",
- "objc2-avf-audio",
- "objc2-core-foundation",
- "objc2-core-media",
- "objc2-core-video",
- "objc2-foundation",
- "objc2-video-toolbox",
- "opus",
- "postcard",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "vergen"

@@ -4,8 +4,8 @@ use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr, RelayMode, RelayUrl};
 use tokio_util::sync::CancellationToken;
 
-/// ALPN protocol identifier for vc.
-pub const ALPN: &[u8] = b"vc/1";
+/// ALPN protocol identifier for meshconf.
+pub const ALPN: &[u8] = b"meshconf/1";
 
 
 /// Serialize an EndpointAddr to a shareable ticket string (postcard-encoded, base64url).
