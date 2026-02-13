@@ -1,6 +1,6 @@
 # meshconf
 
-Peer-to-peer video conferencing in the terminal.
+Peer-to-peer video conferencing.
 
 `meshconf` is a small group video conferencing tool that runs in your terminal. It uses [iroh](https://iroh.computer/) for peer-to-peer connectivity with built-in encryption, hardware-accelerated [HEVC](https://en.wikipedia.org/wiki/High_Efficiency_Video_Coding) (via macOS VideoToolbox) for video, and [Opus](https://opus-codec.org/) for audio. Video can be rendered directly in a compatible terminal using the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/), or displayed in a native window (the default).
 
